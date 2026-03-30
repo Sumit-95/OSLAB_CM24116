@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SSTF Disk Scheduling Pro</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0; font-family:Inter,system-ui,Arial;
+  background: radial-gradient(1200px 600px at 10% 10%, #0ea5e9 0%, transparent 60%),
+              radial-gradient(1200px 600px at 90% 10%, #22c55e 0%, transparent 60%),
+              #0b1220; color:#e5e7eb;
+}
+.container{
+  max-width:1000px; margin:40px auto; padding:28px;
+  background: rgba(17,24,39,.7); backdrop-filter: blur(10px);
+  border:1px solid rgba(255,255,255,.08); border-radius:16px;
+  box-shadow:0 20px 50px rgba(0,0,0,.5);
+}
+h1{ text-align:center; margin-bottom:20px; letter-spacing:.5px }
+.grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px }
+label{ font-size:13px; opacity:.8 }
+input{
+  width:100%; padding:12px; border-radius:10px; border:1px solid rgba(255,255,255,.1);
+  background:#0f172a; color:#e5e7eb; outline:none;
+}
+button{
+  grid-column:1/-1; padding:14px; border:none; border-radius:12px;
+  background: linear-gradient(135deg,#22c55e,#0ea5e9);
+  color:#02121f; font-weight:700; cursor:pointer;
+}
+button:hover{ filter:brightness(1.05) }
+.card{
+  margin-top:16px; padding:16px; border-radius:12px;
+  background:#0f172a; border:1px solid rgba(255,255,255,.08);
+}
+.row{ display:flex; gap:10px; flex-wrap:wrap }
+.badge{ padding:6px 10px; border-radius:999px; background:#111827; border:1px solid rgba(255,255,255,.1)}
+table{ width:100%; border-collapse:collapse; margin-top:10px }
+th,td{ padding:10px; border-bottom:1px solid rgba(255,255,255,.08); text-align:center }
+canvas{ margin-top:16px; background:#fff; border-radius:12px }
+.footer{ opacity:.6; text-align:center; margin-top:10px; font-size:12px }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>SSTF Disk Scheduling • Pro Visualizer</h1>
+
+  <div class="grid">
+    <div>
+      <label>Disk Requests (comma separated)</label>
+      <input id="requests" value="98,183,41,122,14,124,65,67">
+    </div>
+    <div>
+      <label>Initial Head</label>
+      <input id="head" value="53">
+    </div>
+    <button onclick="runAll()">Run Simulation</button>
+  </div>
+
+  <div class="card" id="summary"></div>
+  <div class="card" id="tableBox"></div>
+  <canvas id="chart"></canvas>
+  <div class="footer">Includes SSTF + FCFS comparison, step table, and animated graph.</div>
+</div>
+
+<script>
+function parseInput(){
+  const req = document.getElementById('requests').value.split(',').map(x=>parseInt(x.trim())).filter(x=>!isNaN(x));
+  const head = parseInt(document.getElementById('head').value);
+  return {req, head};
+}
+
+function sstf(req, head){
+  let r = [...req];
+  let seq = [head];
+  let moves = [];
+  let total = 0;
+  while(r.length){
+    let idx = 0;
+    let best = Math.abs(r[0]-head);
+    for(let i=1;i<r.length;i++){
+      const d = Math.abs(r[i]-head);
+      if(d < best){ best = d; idx = i; }
+    }
+    const next = r[idx];
+    moves.push({from:head, to:next, dist:Math.abs(next-head)});
+    total += Math.abs(next-head);
+    head = next; seq.push(head);
+    r.splice(idx,1);
+  }
+  return {seq, total, moves};
+}
+
+function fcfs(req, head){
+  let seq = [head];
+  let moves = [];
+  let total = 0;
+  for(const x of req){
+    moves.push({from:head, to:x, dist:Math.abs(x-head)});
+    total += Math.abs(x-head);
+    head = x; seq.push(head);
+  }
+  return {seq, total, moves};
+}
+
+function renderSummary(s, f){
+  document.getElementById('summary').innerHTML = `
+    <div class="row">
+      <div class="badge"><b>SSTF Movement:</b> ${s.total}</div>
+      <div class="badge"><b>FCFS Movement:</b> ${f.total}</div>
+      <div class="badge"><b>Saved:</b> ${f.total - s.total}</div>
+    </div>
+    <p><b>SSTF Sequence:</b> ${s.seq.join(' → ')}</p>
+    <p><b>FCFS Sequence:</b> ${f.seq.join(' → ')}</p>
+  `;
+}
+
+function renderTable(moves){
+  let html = '<h3>Step-by-step (SSTF)</h3><table><tr><th>Step</th><th>From</th><th>To</th><th>Movement</th></tr>';
+  moves.forEach((m,i)=>{
+    html += `<tr><td>${i+1}</td><td>${m.from}</td><td>${m.to}</td><td>${m.dist}</td></tr>`;
+  });
+  html += '</table>';
+  document.getElementById('tableBox').innerHTML = html;
+}
+
+let chart;
+function animateChart(sequence){
+  const ctx = document.getElementById('chart').getContext('2d');
+  if(chart) chart.destroy();
+  let shown = [sequence[0]];
+  chart = new Chart(ctx,{
+    type:'line',
+    data:{ labels:[0], datasets:[{label:'Head Position', data:shown, borderWidth:2}] },
+    options:{ animation:false, scales:{ x:{ title:{display:true, text:'Step'}}, y:{ title:{display:true, text:'Cylinder'} } } }
+  });
+
+  let i = 1;
+  const timer = setInterval(()=>{
+    if(i >= sequence.length){ clearInterval(timer); return; }
+    shown.push(sequence[i]);
+    chart.data.labels.push(i);
+    chart.update();
+    i++;
+  }, 500);
+}
+
+function runAll(){
+  const {req, head} = parseInput();
+  const s = sstf(req, head);
+  const f = fcfs(req, head);
+  renderSummary(s,f);
+  renderTable(s.moves);
+  animateChart(s.seq);
+}
+</script>
+</body>
+</html>
